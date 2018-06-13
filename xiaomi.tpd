@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?><TITAN_Project_File_Information version="1.0">
+<!--
+ * Copyright (c) 2018 Semihalf.
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+ * SUCH DAMAGE.
+ *-->
+  <ProjectName>xiaomi</ProjectName>
+  <ReferencedProjects>
+    <ReferencedProject name="ProtocolModules_Common" projectLocationURI="TCC/ProtocolModules/COMMON/ProtocolModules_Common.tpd"/>
+    <ReferencedProject name="IP_CNL113418" projectLocationURI="TCC/ProtocolModules/IP_CNL113418/IP_CNL113418.tpd"/>
+    <ReferencedProject name="DNS_CNL113429" projectLocationURI="TCC/ProtocolModules/DNS_CNL113429/DNS_CNL113429.tpd"/>
+    <ReferencedProject name="UDP_CNL113420" projectLocationURI="TCC/ProtocolModules/UDP_CNL113420/UDP_CNL113420.tpd"/>
+    <ReferencedProject name="LANL2asp_CNL113519" projectLocationURI="TCC/TestPorts/LANL2asp_CNL113519/LANL2asp_CNL113519.tpd"/>
+    <ReferencedProject name="TCCUsefulFunctions_CNL113472_OpenSecurity" projectLocationURI="TCC/Libraries/TCCUsefulFunctions_CNL113472/TCCUsefulFunctions_CNL113472_OpenSecurity.tpd"/>
+    <ReferencedProject name="TCCUsefulFunctions_CNL113472_Maths" projectLocationURI="TCC/Libraries/TCCUsefulFunctions_CNL113472/TCCUsefulFunctions_CNL113472_Maths.tpd"/>
+    <ReferencedProject name="TCCUsefulFunctions_CNL113472_Interface" projectLocationURI="TCC/Libraries/TCCUsefulFunctions_CNL113472/TCCUsefulFunctions_CNL113472_Interface.tpd"/>
+  </ReferencedProjects>
+  <Folders>
+    <FolderResource projectRelativePath="src" relativeURI="src"/>
+  </Folders>
+  <Files>
+    <FileResource projectRelativePath="config.cfg" relativeURI="config.cfg"/>
+    <FileResource projectRelativePath="network.cfg" relativeURI="network.cfg"/>
+    <FileResource projectRelativePath="src/Definitions.ttcn" relativeURI="src/Definitions.ttcn"/>
+    <FileResource projectRelativePath="src/Functions.ttcn" relativeURI="src/Functions.ttcn"/>
+    <FileResource projectRelativePath="src/Templates.ttcn" relativeURI="src/Templates.ttcn"/>
+    <FileResource projectRelativePath="src/Testcases.ttcn" relativeURI="src/Testcases.ttcn"/>
+    <FileResource projectRelativePath="src/NullType.ttcn" relativeURI="src/NullType.asn"/>
+  </Files>
+  <ActiveConfiguration>Default</ActiveConfiguration>
+  <Configurations>
+    <Configuration name="Default">
+      <ProjectProperties>
+        <MakefileSettings>
+          <generateMakefile>false</generateMakefile>
+          <targetExecutable>bin/xiaomi</targetExecutable>
+        </MakefileSettings>
+        <LocalBuildSettings>
+          <workingDirectory>bin</workingDirectory>
+        </LocalBuildSettings>
+      </ProjectProperties>
+    </Configuration>
+  </Configurations>
+</TITAN_Project_File_Information>

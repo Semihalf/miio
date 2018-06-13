@@ -1,0 +1,161 @@
+/*-
+* Copyright (c) 2018 Semihalf.
+* All rights reserved.
+*
+* Redistribution and use in source and binary forms, with or without
+* modification, are permitted provided that the following conditions
+* are met:
+* 1. Redistributions of source code must retain the above copyright
+*    notice, this list of conditions and the following disclaimer.
+* 2. Redistributions in binary form must reproduce the above copyright
+*    notice, this list of conditions and the following disclaimer in the
+*    documentation and/or other materials provided with the distribution.
+*
+* THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+* ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+* IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+* ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+* FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+* DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+* OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+* HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+* LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+* OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+* SUCH DAMAGE.
+*/
+
+module Templates
+{
+import from Definitions all;
+import from General_Types all;
+import from IP_Types all;
+
+
+template Command t_cmd_config_router := {
+  method := "miIO.config_router",
+  params := {cred := {tsp_ssid,tsp_passwd,tsp_uid}},
+  id := -1
+}
+
+
+template Command t_cmd_power_on := {
+  method := "set_power",
+  params := {list := {"on"}},
+  id := -1
+}
+
+template Command t_cmd_power_off := {
+  method := "set_power",
+  params := {list := {"off"}},
+  id := -1
+}
+
+template Command t_cmd_set_mode(charstring p_mode) := {
+  method := "set_mode",
+  params := {list := {p_mode}},
+  id := -1
+}
+
+template Command t_cmd_get_prop(CharstringList p_props) := {
+  method := "get_prop",
+  params := {list := p_props},
+  id := -1
+}
+
+//vacuum
+template Command t_cmd_find_me := {
+  method := "find_me",
+  params := {list := {""}},
+  id := -1
+}
+
+template Command t_cmd_get_status := {
+  method := "get_status",
+  params := {list := {}},
+  id := -1
+}
+
+
+template Result t_result_ok(integer p_id) := {
+  result := {list := {{c := "ok"}}},
+  id := p_id
+}
+
+template Result t_result_OK(integer p_id) := {
+  result := {list := {{c := "OK"}}},
+  id := p_id
+}
+
+template Result t_result_success(integer p_id) := {
+  result := {code := 0},
+  id := p_id
+}
+
+template Result t_result_values(integer p_id) := {
+  result := {list := ?},
+  id := p_id
+}
+
+
+template Mi_Packet t_helloPacket := 
+{
+  magic_number := c_magic_number,
+  packet_length := 0,
+  unknown := 'FFFFFFFF'O,
+  did := 'FFFFFFFF'O,
+  stamp := oct2int('FFFFFFFF'O),
+  cksum := 'FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF'O,
+  data := omit
+}
+
+template Mi_Packet tr_helloPacket := 
+{
+  magic_number := c_magic_number,
+  packet_length := ?,
+  unknown := '00000000'O,
+  did := ?,
+  stamp := ?,
+  cksum := ?,
+  data := omit
+}
+
+
+template Mi_Packet t_mi_Data_Packet(octetstring p_data, OCT4 p_did, integer p_stamp, OCT16 p_token) := 
+{
+  magic_number := c_magic_number,
+  packet_length := 0,
+  unknown := '00000000'O,
+  did := p_did,
+  stamp := p_stamp,
+  cksum := p_token,
+  data := p_data
+}
+
+
+
+template ASP_Mi t_asp_mi(OCT6 p_mac, charstring p_srcaddr, charstring p_dstaddr, integer p_portnum, template Mi_Packet p_mi_packet) := {
+  src_mac_address := omit,
+  dst_mac_address := p_mac,
+  ip_header := t_IPv4_header(
+
+    p_proto := c_ip_proto_udp,
+    p_srcaddr := f_IPv4_addr_enc(p_srcaddr),
+    p_dstaddr := f_IPv4_addr_enc(p_dstaddr)
+  ),
+  ip_ext_headers := omit,
+  udp_src_port := tsp_src_portnum,
+  udp_dst_port := p_portnum,
+  mi_packet := p_mi_packet
+}
+
+
+template Device t_empty_device := {
+  name := "",
+  token := int2oct(0,16),
+  did := int2oct(0,4),
+  mac := int2oct(0,6),
+  ip := "",
+  portnum := 54321
+}
+
+}

@@ -1,0 +1,216 @@
+/*-
+ * Copyright (c) 2018 Semihalf.
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+ * SUCH DAMAGE.
+ */
+
+module Testcases
+{
+import from Definitions all;
+import from Definitions all;
+import from Functions all;
+import from General_Types all;
+import from TCCOpenSecurity_Functions all;
+import from Templates all;
+
+
+testcase tc_power_on() runs on MTC_CT
+{
+  f_init_Mi_components();
+
+  if(vg_continue) {
+    for(var integer i := 0; i < sizeof(vg_Mi_CT_List); i := i + 1) {
+      vg_Mi_CT_List[i].start(f_s_command(valueof(t_cmd_power_on), refers(f_check_ok)));
+      vg_Mi_CT_List[i].done;
+    }
+  }
+}
+
+testcase tc_power_off() runs on MTC_CT
+{
+  f_init_Mi_components();
+
+  if(vg_continue) {
+    for(var integer i := 0; i < sizeof(vg_Mi_CT_List); i := i + 1) {
+      vg_Mi_CT_List[i].start(f_s_command(valueof(t_cmd_power_off), refers(f_check_ok)));
+      vg_Mi_CT_List[i].done;
+    }
+  }
+}
+
+
+testcase tc_set_mode_favorite() runs on MTC_CT
+{
+  f_init_Mi_components();
+
+  if(vg_continue) {
+    for(var integer i := 0; i < sizeof(vg_Mi_CT_List); i := i + 1) {
+      vg_Mi_CT_List[i].start(f_s_command(valueof(t_cmd_set_mode("favorite")), refers(f_check_ok)));
+      vg_Mi_CT_List[i].done;
+    }
+  }
+}
+
+
+testcase tc_set_mode_auto() runs on MTC_CT
+{
+  f_init_Mi_components();
+
+  if(vg_continue) {
+    for(var integer i := 0; i < sizeof(vg_Mi_CT_List); i := i + 1) {
+      vg_Mi_CT_List[i].start(f_s_command(valueof(t_cmd_set_mode("auto")), refers(f_check_ok)));
+      vg_Mi_CT_List[i].done;
+    }
+  }
+}
+
+
+//vacuum
+testcase tc_find_me() runs on MTC_CT
+{
+  f_init_Mi_components();
+
+  if(vg_continue) {
+    for(var integer i := 0; i < sizeof(vg_Mi_CT_List); i := i + 1) {
+      vg_Mi_CT_List[i].start(f_s_command(valueof(t_cmd_find_me), refers(f_check_ok)));
+      vg_Mi_CT_List[i].done;
+    }
+  }
+}
+
+testcase tc_get_status() runs on MTC_CT
+{
+  f_init_Mi_components();
+
+  if(vg_continue) {
+    for(var integer i := 0; i < sizeof(vg_Mi_CT_List); i := i + 1) {
+      vg_Mi_CT_List[i].start(f_s_command(valueof(t_cmd_get_status), refers(f_check_values)));
+      vg_Mi_CT_List[i].done;
+    }
+  }
+}
+
+
+
+
+testcase tc_check_sensors() runs on MTC_CT
+{
+  f_init_Mi_components();
+
+  if(vg_continue) {
+    timer T_delay;
+
+    var CharstringList vl_props := {}
+    vl_props[cg_temp] := "temp_dec";
+    vl_props[cg_hum]  := "humidity";
+    vl_props[cg_aqi]  := "aqi";
+
+    var ReturnBoolean vl_continue := true;
+
+    for(var integer i := 0; vl_continue and i < tsp_no_checks; i := i + 1) {
+      for(var integer j := 0; vl_continue and j < sizeof(vg_Mi_CT_List); j := j + 1) {
+        vg_Mi_CT_List[j].start(f_s_command(valueof(t_cmd_get_prop(vl_props)), refers(f_check_values)));
+        vg_Mi_CT_List[j].done(ReturnBoolean:?) -> value vl_continue;
+      }
+      T_delay.start(tsp_check_interval);
+      T_delay.timeout;
+    }
+
+    f_analyze_results();
+  }
+}
+
+
+testcase tc_config_mdns() runs on MTC_CT
+{
+  var DNS_CT vl_mDNS := DNS_CT.create("mDNS");
+
+  var Device vl_device;
+
+  vl_mDNS.start(f_discover());
+  vl_mDNS.done(Device:?) -> value vl_device;
+
+  var Dispatcher_CT vl_disp := f_create_Dispatcher();
+  var Mi_CT vl_Mi := Mi_CT.create("Mi") alive;
+  vl_Mi.start(f_init_Mi_CT(vl_disp,-,vl_device));
+  vl_Mi.done;
+
+  vl_Mi.start(f_s_hello(vl_device.ip));
+  vl_Mi.done;
+
+  vl_Mi.start(f_r_hello(true));
+  vl_Mi.done;
+
+  vl_Mi.start(f_s_command(valueof(t_cmd_config_router), refers(f_check_success)));
+  vl_Mi.done;
+}
+
+
+
+testcase tc_config_hello() runs on MTC_CT
+{
+
+  var Device vl_device := valueof(t_empty_device);
+
+  var Dispatcher_CT vl_disp := f_create_Dispatcher();
+  var Mi_CT vl_Mi := Mi_CT.create("Mi") alive;
+  vl_Mi.start(f_init_Mi_CT(vl_disp,-,vl_device));
+  vl_Mi.done;
+
+  vl_Mi.start(f_s_hello(vl_device.ip));
+  vl_Mi.done;
+
+  vl_Mi.start(f_r_hello(true));
+  vl_Mi.done;
+
+  vl_Mi.start(f_s_command(valueof(t_cmd_config_router), refers(f_check_ok)));
+  vl_Mi.done;
+}
+
+
+
+testcase tc_config_mirobo() runs on MTC_CT
+{
+  var Device vl_device;
+  var Dispatcher_CT vl_disp := f_create_Dispatcher();
+  var Mi_CT vl_Mi := Mi_CT.create("Mi") alive;
+  vl_Mi.start(f_init_Mi_CT(vl_disp,0));
+  vl_Mi.done;
+
+  vl_Mi.start(f_s_hello());
+  vl_Mi.done;
+
+  vl_Mi.start(f_r_hello(true));
+  vl_Mi.done(Device:?) -> value vl_device;
+
+  log("Device: ", vl_device);
+
+  vl_Mi.start(f_s_command(valueof(t_cmd_config_router), refers(f_check_OK)));
+  vl_Mi.done;
+}
+
+
+control {
+
+}
+}

@@ -1,0 +1,498 @@
+/*-
+* Copyright (c) 2018 Semihalf.
+* All rights reserved.
+*
+* Redistribution and use in source and binary forms, with or without
+* modification, are permitted provided that the following conditions
+* are met:
+* 1. Redistributions of source code must retain the above copyright
+*    notice, this list of conditions and the following disclaimer.
+* 2. Redistributions in binary form must reproduce the above copyright
+*    notice, this list of conditions and the following disclaimer in the
+*    documentation and/or other materials provided with the distribution.
+*
+* THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+* ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+* IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+* ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+* FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+* DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+* OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+* HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+* LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+* OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+* SUCH DAMAGE.
+*/
+
+module Functions
+{
+import from DNS_Types all;
+import from Definitions all;
+import from General_Types all;
+import from IP_Types all;
+import from TCCOpenSecurity_Functions all;
+import from Templates all;
+import from TCCInterface_Functions all;
+import from TCCMaths_Functions all;
+
+function f_init_Mi_CT(Dispatcher_CT p_disp, integer p_index := -1, template Device p_device := omit) runs on Mi_CT
+{
+  if(ispresent(p_device)) {
+    vg_device := valueof(p_device);
+  }
+  else if(p_index >= 0) {
+    vg_device := tsp_devices[p_index];
+  }
+  else {
+    testcase.stop;
+  }
+  vg_key := f_calculateMD5_oct(vg_device.token);
+  vg_iv := f_calculateMD5_oct(vg_key & vg_device.token);
+  connect(self:Mi_Internal_PCO, p_disp:Mi_Internal_PCO);
+  connect(self:Sync_PCO, p_disp:Sync_PCO);
+  Sync_PCO.call(register:{vg_device.did}) {
+    [] Sync_PCO.getreply(register:{-});
+  }
+  disconnect(self:Sync_PCO, p_disp:Sync_PCO);
+}
+
+
+function f_create_Dispatcher() runs on MTC_CT
+return Dispatcher_CT
+{
+  var Dispatcher_CT vl_disp := Dispatcher_CT.create("Dispatcher");
+  map(vl_disp:Mi_External_PCO, system:Mi_External_PCO);
+  vl_disp.start(f_run_Dispatcher());
+  return vl_disp;
+}
+
+function f_run_Dispatcher()
+runs on Dispatcher_CT
+{
+  var OCT4 vl_did;
+  alt {
+    [] Sync_PCO.getcall(register:{?}) -> param (vl_did) sender vg_mi_comp {
+      vg_routingTable[oct2int(vl_did)] := vg_mi_comp;
+      Sync_PCO.reply(register:{-});
+      repeat;
+    }
+    [] Mi_Internal_PCO.receive(ASP_Mi:?) -> value vg_asp {
+      Mi_External_PCO.send(vg_asp);
+      repeat;
+    }
+    [] Mi_External_PCO.receive(ASP_Mi:?) -> value vg_asp {
+      if(isbound(vg_routingTable[0])) {
+        // This is the case where we are looking for device id during discovery
+        // There is only one component connected
+        Mi_Internal_PCO.send(vg_asp);
+      }
+      else {
+        Mi_Internal_PCO.send(vg_asp) to vg_routingTable[oct2int(vg_asp.mi_packet.did)];
+      }
+      repeat;
+    }
+  }
+}
+
+function f_init_Mi_components() runs on MTC_CT
+{
+  var Dispatcher_CT vl_disp := f_create_Dispatcher();
+
+  for(var integer i := 0; i < sizeof(tsp_devices); i := i + 1) {
+    vg_Mi_CT_List[i] := Mi_CT.create(tsp_devices[i].name) alive;
+    vg_Mi_CT_List[i].start(f_init_Mi_CT(vl_disp, i));
+    vg_Mi_CT_List[i].done;
+  }
+
+  if(not isbound(vg_Mi_CT_List[0])) {
+    log("Error: No Mi componets defined");
+    testcase.stop;
+  }
+
+  vg_Mi_CT_List[0].start( f_s_hello() );
+  vg_Mi_CT_List[0].done;
+
+  for(var integer i := 0; i < sizeof(vg_Mi_CT_List); i := i + 1) {
+    vg_Mi_CT_List[i].start(f_r_hello());
+  }
+
+  for(var integer i := 0; i < sizeof(vg_Mi_CT_List); i := i + 1) {
+    var Device vl_device;
+    vg_Mi_CT_List[i].done(Device:?) -> value vl_device;
+    if(lengthof(vl_device.ip) == 0) {
+      vg_continue := false;
+    }
+  }
+}
+
+function f_getIP(charstring p_interface := tsp_interface) return charstring
+{
+  var charstring vl_ip, vl_netmask, vl_broadcast;
+  TCCInterface_Functions.f_getIP(p_interface, vl_ip, vl_netmask, vl_broadcast);
+  return vl_ip;
+}
+
+function f_s_hello(charstring p_destaddr := "255.255.255.255") runs on Mi_CT
+{
+  var charstring vl_hostaddr := f_getIP();
+  Mi_Internal_PCO.send(t_asp_mi('ffffffffffff'O, vl_hostaddr, p_destaddr, vg_device.portnum, t_helloPacket));
+}
+
+
+function f_r_hello(boolean p_initial_hello := false) runs on Mi_CT return Device
+{
+  vg_stamp := -1;
+  T.start(1.0);
+  var ASP_Mi vl_asp_mi;
+  alt
+  {
+    [] Mi_Internal_PCO.receive(ASP_Mi:?) -> value vl_asp_mi {
+      T.stop;
+      if(p_initial_hello) {
+        vg_device.did := vl_asp_mi.mi_packet.did;
+        vg_device.token := vl_asp_mi.mi_packet.cksum;
+        //TODO validate checksum
+
+        log("DID:  ", vg_device.did);
+        log("Token:", vg_device.token);
+
+        vg_key := f_calculateMD5_oct(vg_device.token);
+        vg_iv := f_calculateMD5_oct(vg_key & vg_device.token);
+      }
+      else {
+        if(not match(vl_asp_mi.mi_packet.did, vg_device.did)) {repeat}
+      }
+      log("HELLO response: ", vl_asp_mi.mi_packet);
+      vg_device.ip := f_IPv4_addr_dec(vl_asp_mi.ip_header.srcaddr);
+      vg_device.mac := vl_asp_mi.src_mac_address;
+      vg_stamp := vl_asp_mi.mi_packet.stamp;
+    }
+    [] T.timeout {setverdict(fail, "Timeout on Hello answer")}
+  }
+  return vg_device;
+}
+
+
+function f_s_command(Command p_cmd, ResultVerification p_callback) runs on Mi_CT
+return ReturnBoolean
+{
+  p_cmd.id := vg_id;
+
+  if(not isbound(vg_stamp) or vg_stamp < 0) {
+    log("No stamp from hello request");
+    return false;
+  }
+
+  var octetstring vl_cmd := f_enc_Command(p_cmd);
+  var integer vl_pad := 16 - lengthof(vl_cmd) rem 16;
+
+  for(var integer i := 0; i < vl_pad; i := i + 1) {
+    vl_cmd := vl_cmd & int2oct(vl_pad, 1);
+  }
+
+
+  vl_cmd := f_AES_CBC_128_Encrypt_OpenSSL(vg_key, vg_iv, vl_cmd);
+
+  var Mi_Packet vl_mi_packet := valueof(t_mi_Data_Packet(vl_cmd, vg_device.did, vg_stamp, vg_device.token));
+
+  vl_mi_packet.cksum := f_calculateMD5_oct(f_enc_Mi_Packet(vl_mi_packet));
+
+  var charstring vl_hostaddr := f_getIP();
+
+  Mi_Internal_PCO.send(t_asp_mi(vg_device.mac, vl_hostaddr, vg_device.ip, vg_device.portnum, vl_mi_packet));
+
+  T.start(1.0);
+  var ASP_Mi vl_asp_mi;
+  alt
+  {
+    [] Mi_Internal_PCO.receive(ASP_Mi:?) -> value vl_asp_mi {
+      T.stop;
+      var OCT16 vl_cksum := vl_asp_mi.mi_packet.cksum;
+      vl_asp_mi.mi_packet.cksum := vg_device.token;
+      if(not match(f_calculateMD5_oct(f_enc_Mi_Packet(vl_asp_mi.mi_packet)), vl_cksum)) {
+        setverdict(fail, "Incorrect checksum");
+        log("Incorrect checksum: ", match(vl_cksum, f_calculateMD5_oct(f_enc_Mi_Packet(vl_asp_mi.mi_packet))));
+      }
+      if(not ispresent(vl_asp_mi.mi_packet.data)) {
+        setverdict(fail, "No data available");
+      }
+      else {
+        f_decrypt(vl_asp_mi.mi_packet.data);
+        var Result vl_result := f_dec_Result(vl_asp_mi.mi_packet.data);
+        if(not match(vl_result.id, vg_id)) {
+          setverdict(fail, "Incorrect Result Id");
+        }
+        else {
+          log("Received Result: ", vl_result);
+          setverdict(pass);
+        }
+        p_callback.apply(vl_result);
+      }
+    }
+    [] T.timeout {log("Timeout on waiting for reply!")}
+  }
+  vg_id := vg_id + 1;
+
+  return true;
+}
+
+
+function f_discover() runs on DNS_CT
+return Device
+{
+  var QResourceRecord vl_QResourceRecord := 
+  {
+    qName := "_miio._udp.local",
+    qType := DNS_PTR,
+    qClass := DNS_IN
+  }
+
+  var charstring vl_hostaddr := f_getIP();
+  timer T;
+  map(self:DNS_PCO, system:DNS_PCO);
+
+
+
+  template ASP_DNS t_asp_dns := {
+    src_mac_address := omit,
+    dst_mac_address := '01005e0000fb'O,
+    ip_header := t_IPv4_header(
+      p_proto := c_ip_proto_udp,
+      p_srcaddr := f_IPv4_addr_enc(vl_hostaddr),
+      p_dstaddr := f_IPv4_addr_enc("224.0.0.251")
+    ),
+    ip_ext_headers := omit,
+    udp_src_port := 5353,
+    udp_dst_port := 5353,
+    pdu_dns := t_pdu_dns({vl_QResourceRecord})
+  }
+
+  DNS_PCO.send(t_asp_dns);
+  T.start(1.0);
+  var ASP_DNS vl_asp_dns;
+  alt
+  {
+    [] DNS_PCO.receive(ASP_DNS:?) -> value vl_asp_dns {
+      T.stop;
+
+      var ResourceRecords vl_answers := vl_asp_dns.pdu_dns.answers;
+      for(var integer i := 0; i < vl_asp_dns.pdu_dns.header.anCount; i := i + 1) {
+        select(vl_answers[i].rrType) {
+          case (DNS_A) {
+            vg_device.ip := f_IPv4_addr_dec(vl_answers[i].rData.a)
+          }
+          case (DNS_SRV) {
+            vg_device.portnum := vl_answers[i].rData.srv.portnum;
+          }
+          case (DNS_TXT) {
+            vg_device.mac := str2oct(regexp(vl_answers[i].rData.txt[0], "*mac=([0-9a-f]#(12))", 0));
+          }
+        }
+      }
+      vg_device.name := "discovery";
+      vg_device.did := int2oct(0,4);
+      vg_device.token := int2oct(0,16);
+      log("==============================");
+      log("DEVICE:   ", vg_device);
+      log("==============================");
+    }
+    [] T.timeout {setverdict(fail)}
+  }
+  unmap(self:DNS_PCO, system:DNS_PCO);
+
+  return vg_device;
+}
+
+
+function f_check_ok(Result p_result) runs on Mi_CT
+{
+  if(match(p_result, t_result_ok(vg_id))) {
+    log("Result OK");
+    setverdict(pass);
+  }
+  else {
+    setverdict(fail, "Incorrect result")
+    log(match(p_result, t_result_ok(vg_id)));
+  }
+}
+
+function f_check_OK(Result p_result) runs on Mi_CT
+{
+  if(match(p_result, t_result_OK(vg_id))) {
+    log("Result OK");
+    setverdict(pass);
+  }
+  else {
+    setverdict(fail, "Incorrect result")
+    log(match(p_result, t_result_OK(vg_id)));
+  }
+}
+
+function f_check_success(Result p_result) runs on Mi_CT
+{
+  if(match(p_result, t_result_success(vg_id))) {
+    log("Result OK");
+    setverdict(pass);
+  }
+  else {
+    setverdict(fail, "Incorrect result")
+    log(match(p_result, t_result_success(vg_id)));
+  }
+}
+
+function f_check_values(Result p_result) runs on Mi_CT
+{
+  if(match(p_result, t_result_values(vg_id))) {
+    setverdict(pass);
+
+    if(ischosen(p_result.result.list)) {
+      for(var integer i := 0; i < sizeof(p_result.result.list); i := i + 1) {
+        if(ischosen(p_result.result.list[i].i)) {
+          vg_int_values[vg_id - 1][i] := p_result.result.list[i].i;
+        }
+      }
+    }
+  }
+  else {
+    setverdict(fail, "Incorrect result")
+    log(match(p_result, t_result_values(vg_id)));
+  }
+
+}
+
+function f_get_values() runs on Mi_CT
+return IntegerList2
+{
+  for(var integer i := 0; i < sizeof(vg_int_values); i := i + 1) {
+    if(not isbound(vg_int_values[i])) {
+      vg_int_values[i] := {};
+    }
+  }
+  return vg_int_values;
+}
+
+
+
+function f_decrypt(inout octetstring p_data) runs on Mi_CT
+{
+  p_data := f_AES_CBC_128_Decrypt_OpenSSL(vg_key, vg_iv, p_data);
+  var octetstring vl_last_octet := p_data[lengthof(p_data) - 1];
+  if(vl_last_octet == '00'O) {
+    // remove null termination
+    p_data := substr(p_data, 0 , lengthof(p_data) - 1);
+  }
+  else if(vl_last_octet != char2oct("}")) {
+    // remove padding
+    p_data := substr(p_data, 0 , lengthof(p_data) - oct2int(vl_last_octet));
+
+    if(vl_last_octet == '00'O) {
+      // remove null termination
+      p_data := substr(p_data, 0 , lengthof(p_data) - 1);
+    }
+  }
+}
+
+
+function f_quicksort(inout IntegerList p_list, integer l, integer r)
+{
+  if(l < r) {
+    var integer s := l + (r - l) / 2;
+    var integer p := p_list[s];
+    var integer i := l;
+    var integer j := r;
+    while (i <= j) {
+      while(p_list[i] < p) {i := i + 1}
+      while(p_list[j] > p) {j := j - 1}
+      if(i <= j) {
+        var integer vl_aux := p_list[i];
+        p_list[i] := p_list[j];
+        p_list[j] := vl_aux;
+        i := i + 1;
+        j := j - 1;
+      }
+    }
+    if(j > l) {f_quicksort(p_list, l, j)}
+    if(i < r) {f_quicksort(p_list, i, r)}
+  }
+}
+
+
+
+function f_analyze_results() runs on MTC_CT {
+  var IntegerList2 vl_temp := {};
+  var IntegerList2 vl_hum := {};
+  var IntegerList2 vl_aqi := {};
+  for(var integer i := 0; i < sizeof(vg_Mi_CT_List); i := i + 1) {
+    vl_temp[i] := {};
+    vl_hum[i] := {};
+    vl_aqi[i] := {};
+
+    var IntegerList2 vl_results := {};
+    vg_Mi_CT_List[i].start(f_get_values());
+    vg_Mi_CT_List[i].done(IntegerList2:?) -> value vl_results;
+
+    for(var integer j := 0; j < sizeof(vl_results); j := j + 1) {
+      if(not isbound(vl_results[j])) {continue}
+      if(isbound(vl_results[j][cg_temp])) {
+        vl_temp[i][sizeof(vl_temp[i])] := vl_results[j][cg_temp];
+      }
+      if(isbound(vl_results[j][cg_hum])) {
+        vl_hum[i][sizeof(vl_hum[i])] := vl_results[j][cg_hum];
+      }
+      if(isbound(vl_results[j][cg_aqi])) {
+        vl_aqi[i][sizeof(vl_aqi[i])] := vl_results[j][cg_aqi];
+      }
+    }
+  }
+
+  f_check_tolerance("Temperature", vl_temp, tsp_temp_tolerance);
+  f_check_tolerance("Humidity", vl_hum, tsp_hum_tolerance);
+  f_check_tolerance("AQI", vl_aqi, tsp_aqi_tolerance);
+}
+
+
+function f_check_tolerance( in charstring p_desc, inout IntegerList2 p_list, in float p_tolerance)
+{
+  log(p_desc, ": All results: ", p_list);
+  var FloatList vl_average_list := {}
+  for(var integer i := 0; i < sizeof(p_list); i := i + 1) {
+    f_quicksort(p_list[i], 0, sizeof(p_list[i]) - 1);
+
+    if(sizeof(p_list[i]) > 2 * tsp_trimmed) {
+      var IntegerList vl_tmp_list := {};
+      for (var integer x := tsp_trimmed; x < sizeof(p_list[i]) - tsp_trimmed; x := x + 1) {
+        vl_tmp_list[x - tsp_trimmed] := p_list[i][x];
+      }
+      p_list[i] := vl_tmp_list;
+    }
+    vl_average_list[i] := f_averageIL(p_list[i]);
+  }
+  log(p_desc, ": Trimmed results: ", p_list);
+  log(p_desc, ": Average values: ", vl_average_list);
+
+  var float vl_min := f_minFL(vl_average_list)[0];
+  var float vl_max := f_maxFL(vl_average_list)[0];
+
+
+  if(vl_min * (1.0 + p_tolerance / 100.0) >= vl_max) {
+    setverdict(pass);
+  }
+  else {
+    setverdict(fail, "Minimal (", vl_min, ") and maximal (", vl_max, ") values do not match tolerance condition (", p_tolerance, "%)");
+  }
+}
+
+external function f_enc_Command(in Command par) return octetstring
+with { extension "prototype(convert) encode(JSON)" }
+
+external function f_dec_Result(in octetstring par) return Result
+with { extension "prototype(convert) decode(JSON)" }
+
+external function f_enc_Result(in Result par) return  octetstring
+with { extension "prototype(convert) encode(JSON)" }
+
+external function f_enc_RoR(in ValueList par) return  octetstring
+with { extension "prototype(convert) encode(JSON)" }
+
+
+}

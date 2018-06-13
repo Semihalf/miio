@@ -1,0 +1,18 @@
+[submodule "TCC/ProtocolModules/COMMON"]
+	path = TCC/ProtocolModules/COMMON
+	url = https://github.com/eclipse/titan.ProtocolModules.COMMON.git
+[submodule "TCC/ProtocolModules/DNS_CNL113429"]
+	path = TCC/ProtocolModules/DNS_CNL113429
+	url = https://github.com/eclipse/titan.ProtocolModules.DNS.git
+[submodule "TCC/ProtocolModules/UDP_CNL113420"]
+	path = TCC/ProtocolModules/UDP_CNL113420
+	url = https://github.com/eclipse/titan.ProtocolModules.UDP.git
+[submodule "TCC/ProtocolModules/IP_CNL113418"]
+	path = TCC/ProtocolModules/IP_CNL113418
+	url = https://github.com/eclipse/titan.ProtocolModules.IP.git
+[submodule "TCC/Libraries/TCCUsefulFunctions_CNL113472"]
+	path = TCC/Libraries/TCCUsefulFunctions_CNL113472
+	url = https://github.com/eclipse/titan.Libraries.TCCUsefulFunctions.git
+[submodule "TCC/TestPorts/LANL2asp_CNL113519"]
+	path = TCC/TestPorts/LANL2asp_CNL113519
+	url = https://github.com/eclipse/titan.TestPorts.LANL2asp.git

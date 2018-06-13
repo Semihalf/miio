@@ -1,0 +1,558 @@
+/*-
+ * Copyright (c) 2018 Semihalf.
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+ * SUCH DAMAGE.
+ */
+
+module Definitions
+{
+import from DNS_Types all;
+import from General_Types all;
+import from IP_Types all;
+import from LANL2asp_PortType all;
+import from LANL2asp_Types all;
+import from UDP_Types all;
+import from NullType all;
+
+type component Mi_CT
+{
+  port Mi_Internal_PT Mi_Internal_PCO;
+  port Sync_PT Sync_PCO;
+  var integer vg_id := 1;
+
+  var octetstring vg_key
+  var octetstring vg_iv;
+
+  var Device vg_device;
+  var integer vg_stamp;
+
+  var IntegerList2 vg_int_values;
+
+  timer T;
+}
+
+type component DNS_CT
+{
+  port DNS_PT DNS_PCO;
+  var Device vg_device;
+}
+
+type component MTC_CT
+{
+  var Mi_CT_List vg_Mi_CT_List := {};
+  var boolean vg_continue := true;
+}
+
+type record of Mi_CT Mi_CT_List;
+
+
+type component Dispatcher_CT
+{
+  var ASP_Mi vg_asp;
+  var Mi_CT  vg_mi_comp;
+  var Mi_CT_List vg_routingTable;
+  port Mi_Internal_PT Mi_Internal_PCO;
+  port Mi_External_PT Mi_External_PCO;
+  port Sync_PT Sync_PCO;
+}
+
+type record Device
+{
+  charstring name,
+  OCT16      token,
+  OCT4       did,
+  OCT6       mac,
+  charstring ip,
+  integer    portnum
+}
+with {
+  extension "done"
+}
+
+type record of Device Devices;
+
+
+
+modulepar integer tsp_src_portnum;
+modulepar Devices tsp_devices;
+modulepar integer tsp_no_checks;
+modulepar float tsp_check_interval;
+
+modulepar charstring tsp_interface;
+modulepar charstring tsp_ssid;
+modulepar charstring tsp_passwd;
+modulepar integer tsp_uid;
+modulepar octetstring tsp_own_mac;
+modulepar float tsp_temp_tolerance;
+modulepar float tsp_hum_tolerance;
+modulepar float tsp_aqi_tolerance;
+modulepar integer tsp_trimmed;
+
+type record Mi_Packet
+{
+  OCT2         magic_number ('2131'O),
+  LIN2         packet_length,
+  OCT4         unknown,
+  OCT4         did,
+  LIN4_BO_LAST stamp,
+  OCT16        cksum,
+  octetstring  data optional
+}
+with {
+  variant (packet_length) "LENGTHTO (magic_number,packet_length,unknown,did,stamp,cksum,data)";
+  variant (packet_length) "BYTEORDER(last)";
+  variant "PRESENCE(magic_number='2131'O)";
+  encode "RAW";
+}
+
+const OCT2 c_magic_number := '2131'O;
+
+
+const integer cg_temp := 0;
+const integer cg_hum  := 1;
+const integer cg_aqi  := 2;
+
+
+template PDU_DNS t_pdu_dns(QResourceRecords p_queries) :=
+{
+  header := t_dns_header(sizeof(p_queries)),
+  queries := p_queries,
+  answers := {},
+  nameServerRecords := {},
+  additionalRecords := {}
+}
+
+
+template DnsHeader t_dns_header(integer p_qdCount) :=
+{
+  id := 0,
+  qr := DNS_QUERY,
+  opCode := DNS_OP_QUERY,
+  aa := false,       // Authoritive Answer
+  tc := false,       // Truncation
+  rd := false,       // Recursion Desired
+  ra := false,       // Recursion Available
+  z := '000'B, //length(3), // reserved, must be '000'B
+  rCode := DNS_NO_ERROR,
+  qdCount := p_qdCount,  // Number of queries in this message
+  anCount := 0,  // Number of answers in this message
+  nsCount := 0,  // Number of name server resource records
+  arCount := 0   // Number of additional resource records
+}
+
+
+const OCT2 c_eth_proto_ipv4 := '0800'O;
+
+
+template IPv4_header t_IPv4_header(
+  INT4b p_hlen := 5,
+  LIN1 p_tos := 0,
+  BIT1 p_dfrag := '0'B,
+  BIT1 p_mfrag := '0'B,
+  INT13b_BO_LAST p_foffset := 0,
+  LIN1 p_ttl := 255,
+  LIN1 p_proto,
+  OCT4 p_srcaddr,
+  OCT4 p_dstaddr
+) := {
+  ver     := c_ip_version_ipv4,
+  hlen    := p_hlen,
+  tos     := p_tos,
+  tlen    := 0,
+  id      := 50000,
+  res     := '0'B,
+  dfrag   := p_dfrag,
+  mfrag   := p_mfrag,
+  foffset := p_foffset,
+  ttl     := p_ttl,
+  proto   := p_proto,
+  cksum   := 0,
+  srcaddr := p_srcaddr,
+  dstaddr := p_dstaddr
+}
+
+
+type record ASP_DNS {
+  OCT6                   src_mac_address optional,
+  OCT6                   dst_mac_address,
+  IPv4_header            ip_header,
+  IPv4_extension_headers ip_ext_headers optional,
+  integer                udp_src_port,
+  integer                udp_dst_port,
+  PDU_DNS                pdu_dns
+}
+
+
+type record ASP_Mi {
+  OCT6                   src_mac_address optional,
+  OCT6                   dst_mac_address,
+  IPv4_header            ip_header,
+  IPv4_extension_headers ip_ext_headers optional,
+  integer                udp_src_port,
+  integer                udp_dst_port,
+  Mi_Packet              mi_packet
+}
+
+
+
+
+type port DNS_PT message
+{
+  inout ASP_DNS;
+  out ASP_LANL2_open_interface;
+  in ASP_LANL2_open_result, ASP_LANL2_Error;
+} 
+with 
+{ 
+  extension "user LANL2asp_PT
+  out(
+  ASP_DNS                  -> ASP_LANL2                : function(f_encode_ASP_DNS);
+  ASP_LANL2_open_interface -> ASP_LANL2_open_interface : simple
+  )
+  in(
+  ASP_v2_LANL2          ->                     - : discard;
+  ASP_v2_LANL2_Error    ->                     - : discard;
+  ASP_LANL2             -> ASP_DNS               : function(f_decode_ASP_LANL2_DNS), - : discard;
+  ASP_LANL2_open_result -> ASP_LANL2_open_result : simple;
+  ASP_LANL2_Error       -> ASP_LANL2_Error       : simple
+  )"
+}
+
+signature register(OCT4 p_did);
+
+type port Sync_PT procedure {
+  inout register;
+}
+with {
+  extension "internal"
+}
+
+type port Mi_Internal_PT message
+{
+  inout ASP_Mi;
+} 
+with {
+  extension "internal"
+}
+
+
+type port Mi_External_PT message
+{
+  inout ASP_Mi;
+  out ASP_LANL2_open_interface;
+  in ASP_LANL2_open_result, ASP_LANL2_Error;
+} 
+with 
+{ 
+  extension "user LANL2asp_PT
+  out(
+  ASP_Mi                 -> ASP_LANL2             : function(f_encode_ASP_Mi);
+  ASP_LANL2_open_interface -> ASP_LANL2_open_interface : simple
+  )
+  in(
+  ASP_v2_LANL2              ->                        - : discard;
+  ASP_v2_LANL2_Error          ->                        - : discard;
+  ASP_LANL2             -> ASP_Mi                 : function(f_decode_ASP_LANL2_ASP_Mi), - : discard;
+  ASP_LANL2_open_result    -> ASP_LANL2_open_result    : simple;
+  ASP_LANL2_Error       -> ASP_LANL2_Error       : simple
+  )"
+}
+
+function f_encode_ASP_DNS( in ASP_DNS p_asp )
+return ASP_LANL2
+{
+  // Encode DNS ASP into UDP packet
+  var UDP_packet vl_UDP_packet;
+  vl_UDP_packet.header.srcport := p_asp.udp_src_port;
+  vl_UDP_packet.header.dstport := p_asp.udp_dst_port;
+  vl_UDP_packet.header.len     := 0;
+  vl_UDP_packet.header.cksum   := 0;
+  vl_UDP_packet.payload        := enc_PDU_DNS(p_asp.pdu_dns, false, false)
+
+  // Encode UDP packet into IPv4 packet
+  var IPv4_packet vl_IPv4_packet;
+  vl_IPv4_packet.header      := p_asp.ip_header;
+  vl_IPv4_packet.ext_headers := p_asp.ip_ext_headers;
+
+  var octetstring vl_data := f_UDP_enc(vl_UDP_packet);
+  var UDP_pseudo_header vl_udp_pseudo_header := {
+    ipv4 := {
+      srcaddr := p_asp.ip_header.srcaddr,
+      dstaddr := p_asp.ip_header.dstaddr,
+      zero    := 0,
+      proto   := c_ip_proto_udp,
+      plen    := lengthof(vl_data)
+    }
+  }
+  var OCT2 vl_cksum := f_UDP_checksum(f_UDP_pseudo_header_enc(vl_udp_pseudo_header) & vl_data);
+  vl_data[6] := vl_cksum[0];
+  vl_data[7] := vl_cksum[1];
+  vl_IPv4_packet.payload := vl_data;
+
+  // Encode IPv4 packet into LANL2 ASP
+  vl_data := f_IPv4_enc_eth(vl_IPv4_packet);
+  vl_cksum := f_IPv4_checksum(vl_data);
+  vl_data[10] := vl_cksum[0];
+  vl_data[11] := vl_cksum[1];
+
+  var ASP_LANL2 vl_ASP_LANL2;
+  //  vl_ASP_v2_LANL2.interface_id := p_asp.interface_id;
+  vl_ASP_LANL2.eth_dst_addr := p_asp.dst_mac_address;
+  vl_ASP_LANL2.eth_src_addr := p_asp.src_mac_address;
+  vl_ASP_LANL2.type_field   := c_eth_proto_ipv4;
+  vl_ASP_LANL2.payload      := vl_data;
+  return vl_ASP_LANL2;
+}
+with { extension "prototype(convert)" }
+
+
+
+function f_encode_ASP_Mi( in ASP_Mi p_asp )
+return ASP_LANL2
+{
+  // Encode Mi ASP into UDP packet
+  var UDP_packet vl_UDP_packet;
+  vl_UDP_packet.header.srcport := p_asp.udp_src_port;
+  vl_UDP_packet.header.dstport := p_asp.udp_dst_port;
+  vl_UDP_packet.header.len     := 0;
+  vl_UDP_packet.header.cksum   := 0;
+  vl_UDP_packet.payload        := f_enc_Mi_Packet(p_asp.mi_packet);
+
+
+  // Encode UDP packet into IPv4 packet
+  var IPv4_packet vl_IPv4_packet;
+  vl_IPv4_packet.header      := p_asp.ip_header;
+  vl_IPv4_packet.ext_headers := p_asp.ip_ext_headers;
+
+  var octetstring vl_data := f_UDP_enc(vl_UDP_packet);
+  var UDP_pseudo_header vl_udp_pseudo_header := {
+    ipv4 := {
+      srcaddr := p_asp.ip_header.srcaddr,
+      dstaddr := p_asp.ip_header.dstaddr,
+      zero    := 0,
+      proto   := c_ip_proto_udp,
+      plen    := lengthof(vl_data)
+    }
+  }
+  var OCT2 vl_cksum := f_UDP_checksum(f_UDP_pseudo_header_enc(vl_udp_pseudo_header) & vl_data);
+  vl_data[6] := vl_cksum[0];
+  vl_data[7] := vl_cksum[1];
+  vl_IPv4_packet.payload := vl_data;
+
+  // Encode IPv4 packet into LANL2 ASP
+  vl_data := f_IPv4_enc_eth(vl_IPv4_packet);
+  vl_cksum := f_IPv4_checksum(vl_data);
+  vl_data[10] := vl_cksum[0];
+  vl_data[11] := vl_cksum[1];
+
+  var ASP_LANL2 vl_ASP_LANL2;
+  //  vl_ASP_v2_LANL2.interface_id := p_asp.interface_id;
+  vl_ASP_LANL2.eth_dst_addr := p_asp.dst_mac_address;
+  vl_ASP_LANL2.eth_src_addr := p_asp.src_mac_address;
+  vl_ASP_LANL2.type_field   := c_eth_proto_ipv4;
+  vl_ASP_LANL2.payload      := vl_data;
+  return vl_ASP_LANL2;
+}
+with { extension "prototype(convert)" }
+
+
+
+function f_decode_ASP_LANL2_DNS (in ASP_LANL2 p_asp, out ASP_DNS p_result)
+return integer
+{
+  // Drop non IPv4 packets
+  if(p_asp.type_field != c_eth_proto_ipv4) {
+    return -1;
+  }
+  //  p_result.interface_id    := p_asp.interface_id;
+  p_result.src_mac_address := p_asp.eth_src_addr;
+  p_result.dst_mac_address := p_asp.eth_dst_addr;
+
+  var IPv4_packet vl_IPv4_packet;
+
+  if(f_IPv4_dec_backtrack(p_asp.payload, vl_IPv4_packet, false) != 1) {
+    return -1;
+  }
+  if(isbound(vl_IPv4_packet.header.hlen) and vl_IPv4_packet.header.hlen > 5) {
+    // The IPv4 options at the end of the header are not supported
+    return -1;
+  }
+
+  if(f_IPv4_dec_backtrack(p_asp.payload, vl_IPv4_packet) != 1) {
+    // Incorrect IPv4 packet: ", vl_IPv4_packet
+    return -1;
+  }
+
+  var LIN2_BO_LAST vl_cksum := vl_IPv4_packet.header.cksum;
+  vl_IPv4_packet.header.cksum := 0;
+  if(not match(oct2int(f_IPv4_checksum(f_IPv4_enc_eth(vl_IPv4_packet))), vl_cksum)) {
+    setverdict(fail, "Incorrect IPv4 checksum");
+    return -1;
+  }
+
+
+  p_result.ip_header := vl_IPv4_packet.header;
+  p_result.ip_ext_headers := vl_IPv4_packet.ext_headers;
+
+  if( vl_IPv4_packet.header.proto != c_ip_proto_udp ) {
+    // Dropping non UDP packet
+    return -1;
+  }
+
+  var UDP_packet vl_UDP_packet := f_UDP_dec(vl_IPv4_packet.payload);
+  p_result.udp_src_port := vl_UDP_packet.header.srcport;
+  p_result.udp_dst_port := vl_UDP_packet.header.dstport;
+  p_result.pdu_dns     := dec_PDU_DNS(vl_UDP_packet.payload);
+
+  return 0;
+}
+with { extension "prototype(backtrack)" }
+
+
+
+function f_decode_ASP_LANL2_ASP_Mi (in ASP_LANL2 p_asp, out ASP_Mi p_result)
+return integer
+{
+  // Drop non IPv4 packets
+  if(p_asp.type_field != c_eth_proto_ipv4) {
+    return -1;
+  }
+
+  p_result.src_mac_address := p_asp.eth_src_addr;
+  p_result.dst_mac_address := p_asp.eth_dst_addr;
+
+  var IPv4_packet vl_IPv4_packet;
+
+  if(f_IPv4_dec_backtrack(p_asp.payload, vl_IPv4_packet, false) != 1) {
+    return -1;
+  }
+  if(isbound(vl_IPv4_packet.header.hlen) and vl_IPv4_packet.header.hlen > 5) {
+    // The IPv4 options at the end of the header are not supported
+    return -1;
+  }
+
+  if(f_IPv4_dec_backtrack(p_asp.payload, vl_IPv4_packet) != 1) {
+    // Incorrect IPv4 packet: ", vl_IPv4_packet
+    return -1;
+  }
+
+  var LIN2_BO_LAST vl_cksum := vl_IPv4_packet.header.cksum;
+  vl_IPv4_packet.header.cksum := 0;
+  if(not match(oct2int(f_IPv4_checksum(f_IPv4_enc_eth(vl_IPv4_packet))), vl_cksum)) {
+    setverdict(fail, "Incorrect IPv4 checksum");
+    return -1;
+  }
+
+  p_result.ip_header := vl_IPv4_packet.header;
+  p_result.ip_ext_headers := vl_IPv4_packet.ext_headers;
+
+  if( vl_IPv4_packet.header.proto != c_ip_proto_udp ) {
+    // Dropping non-UDP packet
+    return -1;
+  }
+
+  var UDP_packet vl_UDP_packet := f_UDP_dec(vl_IPv4_packet.payload);
+  p_result.udp_src_port := vl_UDP_packet.header.srcport;
+  p_result.udp_dst_port := vl_UDP_packet.header.dstport;
+  if(f_dec_Mi_Packet(vl_UDP_packet.payload, p_result.mi_packet) != 0) {
+    // Dropping non-Mi packet
+    return -1;
+  }
+
+  return 0;
+}
+with { extension "prototype(backtrack)" }
+
+external function f_enc_Mi_Packet(in Mi_Packet par) return octetstring
+with { extension "prototype(convert) encode(RAW)" }
+
+external function f_dec_Mi_Packet(in octetstring par, out Mi_Packet packet) return integer
+with { extension "prototype(backtrack) decode(RAW) errorbehavior(ALL:IGNORE)" }
+
+
+
+
+//JSON
+group json
+{
+
+  type union CharstringListOrCredentials
+  {
+    CharstringList list,
+    Credentials    cred
+  }
+  with {
+    variant  "JSON: as value";
+  }
+
+  type record Credentials
+  {
+    charstring ssid,
+    charstring passwd,
+    integer uid
+  }
+
+  type record Command
+  {
+    charstring method,
+    CharstringListOrCredentials params,
+    integer id
+  }
+
+  type record Result
+  {
+    ValueListOrCode result,
+    integer id
+  }
+
+  type union Value {
+    integer    i,
+    charstring c,
+    Null       n
+  }
+  with {
+    variant  "JSON: as value";
+  }
+
+  type union ValueListOrCode
+  {
+    ValueList list,
+    integer code
+  }
+  with {
+    variant  "JSON: as value";
+  }
+
+  type record of Value ValueList;
+
+
+}
+with {
+  encode "JSON"
+}
+
+type function ResultVerification(Result p_result) runs on Mi_CT;
+
+type record of IntegerList IntegerList2 with {extension "done"};
+type boolean ReturnBoolean with {extension "done"};
+}
