@@ -1,0 +1,25 @@
+From b499b99fceb2c31d2df1b46d799d12dae1f1b22d Mon Sep 17 00:00:00 2001
+From: Jacek Klimkowicz <jakl@semihalf.com>
+Date: Wed, 13 Jun 2018 12:21:00 +0200
+Subject: [PATCH] Reset most significant bit in resource record class
+
+---
+ src/DNS_EncDec.cc | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/src/DNS_EncDec.cc b/src/DNS_EncDec.cc
+index 214a2d0..d324d0d 100644
+--- a/src/DNS_EncDec.cc
++++ b/src/DNS_EncDec.cc
+@@ -419,6 +419,8 @@ const unsigned char *dec_RR(const unsigned char *p_stream,
+     return stream_start + stream_length;
+   }
+ 
++  dest.rrClass() = dest.rrClass() & 0x7fff;
++
+   if( (int)dest.rrClass() != 1 && (int)dest.rrClass() != 254  && (int)dest.rrClass() != 255 ) { // RR class is not DNS_IN or DNS_NONE or DNS_ANYCLASS
+     TTCN_warning("Resource record class %d is not supported. rData "
+         "will be decoded to field `unsupported'.", (int)dest.rrClass());
+-- 
+2.7.4
+
