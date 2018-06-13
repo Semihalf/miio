@@ -86,7 +86,7 @@ runs on Dispatcher_CT
         // There is only one component connected
         Mi_Internal_PCO.send(vg_asp);
       }
-      else {
+      else if(isbound(vg_routingTable[oct2int(vg_asp.mi_packet.did)])) {
         Mi_Internal_PCO.send(vg_asp) to vg_routingTable[oct2int(vg_asp.mi_packet.did)];
       }
       repeat;
